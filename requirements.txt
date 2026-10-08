@@ -1,8 +1,17 @@
-ai-edge-litert==2.3.0
-audioop-lts==0.2.2
-audioread==3.1.0
-birdnetlib==0.18.1
-imageio-ffmpeg==0.6.0
-librosa==1.0.0
-scipy==1.18.1
-soundfile==0.14.0
+# BirdNET backend dependencies.
+# Markers handle local Python 3.14 vs Docker Python 3.11 (Debian bookworm).
+
+birdnetlib>=0.18
+soundfile>=0.12
+scipy>=1.11
+librosa>=0.10
+audioread>=3.0
+
+# TFLite runtime: native wheels exist for Python < 3.13 (Docker).
+tflite-runtime>=2.14.0; python_version < "3.13"
+
+# Python >= 3.13: audioop removed from stdlib, tflite-runtime has no wheels.
+ai-edge-litert>=2.1; python_version >= "3.13"
+audioop-lts>=0.2; python_version >= "3.13"
+
+imageio-ffmpeg>=0.4
