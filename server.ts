@@ -27,6 +27,15 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// CORS: allow cross-origin API calls (e.g. Vercel frontend -> Render backend)
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 // Storage for uploaded audio recordings
 const uploadDir = path.join(__dirname, 'tmp_uploads');
 if (!fs.existsSync(uploadDir)) {
