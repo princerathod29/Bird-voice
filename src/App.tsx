@@ -140,15 +140,17 @@ export function App() {
     setIsRecording(false);
 
     try {
-      const { blob } = await recorderRef.current.stopRecording();
+      const { blob, mimeType } = await recorderRef.current.stopRecording();
       if (recordingSeconds < 1.0) {
         setErrorMessage('Recording was too short. Please record for at least 3 seconds.');
         return;
       }
+      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'm4a' : 'webm';
       setAudioBlob(blob);
       setAudioUrl(undefined);
-      setCurrentFileName(`Mic_Recording_${new Date().toLocaleTimeString().replace(/:/g, '-')}.wav`);
-      await processAudio(blob, 'mic_recording.wav');
+      const stamp = new Date().toLocaleTimeString().replace(/:/g, '-');
+      setCurrentFileName(`Mic_Recording_${stamp}.${ext}`);
+      await processAudio(blob, `mic_recording.${ext}`);
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to finish recording audio.');
     }

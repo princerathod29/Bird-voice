@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Mic, MicOff, Upload, Play, Sparkles, MapPin, Sliders, AlertCircle, RefreshCw, FileAudio } from 'lucide-react';
 import { AudioVisualizer } from './AudioVisualizer';
+import { BirdCarousel } from './BirdCarousel';
 import { SampleRecording } from '../types/birdnet';
 import { formatTime } from '../utils/audio';
 
@@ -200,25 +201,28 @@ export const RecordingView: React.FC<RecordingViewProps> = ({
                 </div>
               </div>
             ) : (
-              /* Idle recording button */
-              <div className="flex flex-col items-center py-6 space-y-5 text-center">
-                <button
-                  onClick={onStartRecording}
-                  className="group relative flex h-28 w-28 items-center justify-center rounded-full bg-[#14261b] border-2 border-[#10b981]/50 shadow-[0_0_30px_rgba(16,185,129,0.15)] hover:border-[#10b981] hover:scale-105 active:scale-95 transition-all"
-                  aria-label="Start recording bird sound"
-                >
-                  <span className="absolute inset-0 rounded-full bg-[#10b981]/10 group-hover:bg-[#10b981]/20 transition-colors" />
-                  <Mic className="h-10 w-10 text-[#10b981] group-hover:scale-110 transition-transform" />
-                </button>
+              /* Idle state: bird carousel + record button */
+              <div className="flex flex-col items-center py-2 space-y-5 text-center">
+                <BirdCarousel samples={samples} onSelectSample={onSelectSample} disabled={isAnalyzing} />
 
                 <div className="space-y-1">
                   <span className="text-sm font-semibold text-[#f1f7f2]">
-                    Click to Start Listening
+                    Tap the bird to listen
                   </span>
                   <p className="text-xs text-[#769380] max-w-sm">
-                    Hold phone or microphone toward the singing bird. We recommend recording 3 to 10 seconds of clear vocalization.
+                    Point microphone toward the songbird · 3 to 10 seconds of clear call
                   </p>
                 </div>
+
+                <button
+                  onClick={onStartRecording}
+                  className="group relative flex h-16 w-16 items-center justify-center rounded-full bg-[#14261b] border-2 border-[#10b981]/50 shadow-[0_0_30px_rgba(16,185,129,0.15)] hover:border-[#10b981] hover:scale-105 active:scale-95 transition-all"
+                  aria-label="Start recording bird sound"
+                >
+                  <span className="absolute inset-0 rounded-full bg-[#10b981]/10 group-hover:bg-[#10b981]/20 transition-colors" />
+                  <Mic className="h-6 w-6 text-[#10b981] group-hover:scale-110 transition-transform" />
+                </button>
+                <span className="text-[11px] text-[#5d7764] -mt-3">or record your own</span>
               </div>
             )}
           </div>

@@ -18,6 +18,11 @@ const __dirname = path.dirname(__filename);
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const IS_DEV = process.env.NODE_ENV !== 'production';
 
+// Resolve Python interpreter: prefer project venv (has birdnetlib/tflite deps)
+const venvPython = path.join(__dirname, '.venv', 'bin', 'python3');
+const PYTHON_BIN =
+  process.env.PYTHON_BIN || (fs.existsSync(venvPython) ? venvPython : 'python3');
+
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -106,7 +111,7 @@ function runBirdNetInference(
       TF_ENABLE_ONEDNN_OPTS: '0',
     };
 
-    const pyProcess = spawn('python3', args, { env, cwd: __dirname });
+    const pyProcess = spawn(PYTHON_BIN, args, { env, cwd: __dirname });
 
     let stdoutData = '';
     let stderrData = '';
@@ -208,7 +213,7 @@ info = get_species_info('${sciName.replace(/'/g, "\\'")}', '${(commonName || sci
 print(json.dumps(info))
 `;
   
-  const py = spawn('python3', ['-c', pyScript], { cwd: __dirname });
+  const py = spawn(PYTHON_BIN, ['-c', pyScript], { cwd: __dirname });
   let out = '';
   py.stdout.on('data', (d) => { out += d.toString(); });
   py.on('close', () => {

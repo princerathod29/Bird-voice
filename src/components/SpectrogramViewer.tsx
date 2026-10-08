@@ -40,7 +40,8 @@ export const SpectrogramViewer: React.FC<SpectrogramViewerProps> = ({
   // Audio duration updates
   const handleLoadedMetadata = () => {
     if (audioRef.current) {
-      setDuration(audioRef.current.duration || spectrogram.duration);
+      const d = audioRef.current.duration;
+      setDuration(Number.isFinite(d) && d > 0 ? d : spectrogram.duration);
     }
   };
 
