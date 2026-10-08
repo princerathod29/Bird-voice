@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { GhostFibers } from './components/GhostFibers';
 import { Header } from './components/Header';
 import { RecordingView } from './components/RecordingView';
@@ -7,6 +8,7 @@ import { HistoryModal } from './components/HistoryModal';
 import { SamplesModal } from './components/SamplesModal';
 import { AboutModal } from './components/AboutModal';
 import { AudioRecorderService } from './utils/audio';
+import { apiUrl } from './utils/api';
 import { AnalysisResponse, HistoryItem, SampleRecording } from './types/birdnet';
 
 export function App() {
@@ -20,6 +22,7 @@ export function App() {
   const [audioUrl, setAudioUrl] = useState<string | undefined>(undefined);
   const [currentFileName, setCurrentFileName] = useState<string | undefined>(undefined);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [backendUp, setBackendUp] = useState<boolean | null>(null);
 
   // Settings
   const [minConfidence, setMinConfidence] = useState<number>(0.05);
@@ -49,7 +52,7 @@ export function App() {
       common_name: 'European Robin',
       duration: 7.0,
       description: 'Rich liquid warble recorded in temperate woodland habitat.',
-      audio_url: '/api/samples/robin/audio',
+      audio_url: '/samples/robin.mp3',
       sample_file: 'robin.mp3'
     },
     {
@@ -59,7 +62,7 @@ export function App() {
       common_name: 'Northern Cardinal',
       duration: 7.0,
       description: 'Clear resonant whistle notes followed by rapid trill.',
-      audio_url: '/api/samples/cardinal/audio',
+      audio_url: '/samples/cardinal.mp3',
       sample_file: 'cardinal.mp3'
     },
     {
@@ -69,7 +72,7 @@ export function App() {
       common_name: 'Asian Koel',
       duration: 6.5,
       description: "Loud repetitive 'ko-el' breeding crescendo recorded in tropical canopy.",
-      audio_url: '/api/samples/koel/audio',
+      audio_url: '/samples/koel.mp3',
       sample_file: 'koel.mp3'
     }
   ]);
@@ -79,14 +82,23 @@ export function App() {
 
   // Load samples from backend
   useEffect(() => {
-    fetch('/api/samples')
+    fetch(apiUrl('/api/samples'))
       .then((res) => res.json())
       .then((data) => {
         if (data.samples && Array.isArray(data.samples)) {
-          setSamples(data.samples);
+          setSamples(
+            data.samples.map((s: SampleRecording) => ({ ...s, audio_url: apiUrl(s.audio_url) }))
+          );
         }
       })
       .catch((err) => console.log('Samples fetch notice:', err));
+  }, []);
+
+  // Detect whether the AI backend is reachable
+  useEffect(() => {
+    fetch(apiUrl('/api/health'))
+      .then((res) => setBackendUp(res.ok))
+      .catch(() => setBackendUp(false));
   }, []);
 
   // Sync history to localStorage
@@ -192,16 +204,33 @@ export function App() {
     setCurrentFileName(sample.name);
 
     try {
-      const audioRes = await fetch(sample.audio_url);
+      let audioRes = await fetch(sample.audio_url);
       if (!audioRes.ok) throw new Error('Failed to load sample audio from server.');
-      const blob = await audioRes.blob();
+      let blob = await audioRes.blob();
       setAudioBlob(blob);
       setAudioUrl(sample.audio_url);
 
       await processAudio(blob, sample.sample_file);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to process sample audio.');
-      setIsAnalyzing(false);
+      // Fallback: play the locally bundled sample copy (no backend needed)
+      try {
+        const localUrl = `/samples/${sample.id}.mp3`;
+        const localRes = await fetch(localUrl);
+        if (!localRes.ok) throw new Error('Sample audio unavailable.');
+        const blob = await localRes.blob();
+        setAudioBlob(blob);
+        setAudioUrl(localUrl);
+        setErrorMessage(
+          backendUp === false
+            ? 'AI backend not connected — playing the bundled sample. Identification needs the backend (run locally or set VITE_API_BASE_URL).'
+            : err.message || 'Failed to process sample audio.'
+        );
+        setIsAnalyzing(false);
+        return;
+      } catch {
+        setErrorMessage(err.message || 'Failed to process sample audio.');
+        setIsAnalyzing(false);
+      }
     }
   };
 
@@ -219,13 +248,16 @@ export function App() {
     }
 
     try {
-      const response = await fetch('/api/analyze', {
+      const response = await fetch(apiUrl('/api/analyze'), {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        if (backendUp === false) {
+          throw new Error('AI backend not connected. Run the backend locally or set VITE_API_BASE_URL to a hosted backend.');
+        }
         throw new Error(errorData.error || errorData.detail || `Server error (${response.status})`);
       }
 
@@ -289,6 +321,20 @@ export function App() {
     <div className="min-h-screen bg-[#070b08] text-[#e3ece5] flex flex-col font-sans selection:bg-[#10b981] selection:text-black relative">
       {/* Decorative GhostFibers bioacoustic background layer */}
       <GhostFibers opacity={0.65} speed={1.0} interactive={true} />
+
+      {/* Backend status banner */}
+      {backendUp === false && (
+        <div className="relative z-10 mx-auto mt-4 flex w-full max-w-3xl items-start gap-3 rounded-xl border border-amber-900/50 bg-amber-950/30 p-4 text-xs text-amber-200">
+          <AlertCircle className="h-5 w-5 shrink-0 mt-0.5 text-amber-400" />
+          <div className="space-y-1">
+            <p className="font-semibold text-amber-300">Demo mode — AI backend not connected</p>
+            <p className="leading-relaxed text-amber-200/80">
+              Sample playback works offline. For live identification, host the backend and set{' '}
+              <span className="font-mono text-amber-300">VITE_API_BASE_URL</span> to its URL.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Navigation Header */}
       <Header

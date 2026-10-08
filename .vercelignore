@@ -1,0 +1,14 @@
+.venv/
+node_modules/
+.tmp/
+tmp_uploads/
+dist/
+build/
+coverage/
+.git/
+backend/__pycache__/
+*.log
+.env
+.env.*
+!.env.example
+.vercel/
