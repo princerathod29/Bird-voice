@@ -1,11 +1,11 @@
-FROM node:22-bookworm
+FROM node:24-bookworm
 
 RUN apt-get update && apt-get install -y python3 python3-venv ffmpeg && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 COPY . .
 
