@@ -228,6 +228,84 @@ except Exception as e:
   });
 });
 
+// Debug: time each step of inference
+app.get('/api/debug/time-inference', async (_req: Request, res: Response) => {
+  const pyScript = `
+import json, sys, traceback, time, pathlib
+sys.path.insert(0, '${__dirname.replace(/'/g, "\\'")}')
+try:
+    from ai_edge_litert import interpreter
+    import tflite_runtime.interpreter as tflite
+    from birdnetlib.analyzer import Analyzer
+    from backend.audio_analyzer import convert_to_standard_wav, compute_spectrogram
+    from birdnetlib import Recording
+    
+    timings = {}
+    t0 = time.time()
+    a = Analyzer()
+    timings['analyzer_init'] = time.time() - t0
+    print(f"Analyzer init: {timings['analyzer_init']:.2f}s", file=sys.stderr)
+    
+    # Test audio file
+    test_audio = '${__dirname.replace(/'/g, "\\'")}/public/samples/robin.mp3'
+    
+    t1 = time.time()
+    wav_path = test_audio
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+    tmp.close()
+    convert_to_standard_wav(test_audio, tmp.name, 48000)
+    wav_path = tmp.name
+    timings['convert_wav'] = time.time() - t1
+    print(f"Convert WAV: {timings['convert_wav']:.2f}s", file=sys.stderr)
+    
+    t2 = time.time()
+    spec = compute_spectrogram(wav_path)
+    timings['spectrogram'] = time.time() - t2
+    print(f"Spectrogram: {timings['spectrogram']:.2f}s", file=sys.stderr)
+    
+    t3 = time.time()
+    rec = Recording(a, wav_path, min_conf=0.1, return_all_detections=True)
+    timings['recording_create'] = time.time() - t3
+    print(f"Recording create: {timings['recording_create']:.2f}s", file=sys.stderr)
+    
+    t4 = time.time()
+    rec.analyze()
+    timings['analyze'] = time.time() - t4
+    print(f"Analyze: {timings['analyze']:.2f}s", file=sys.stderr)
+    
+    timings['total'] = time.time() - t0
+    print(json.dumps({"success": True, "timings": timings, "detections": len(rec.detections)}))
+    import os
+    os.remove(wav_path)
+except Exception as e:
+    import traceback
+    print(json.dumps({"success": False, "error": str(e), "trace": traceback.format_exc()}))
+    sys.exit(1)
+  `;
+  
+  const py = spawn(PYTHON_BIN, ['-c', pyScript], { cwd: __dirname, timeout: 180000 });
+  let stdoutData = '';
+  let stderrData = '';
+  
+  py.stdout.on('data', (d) => stdoutData += d.toString());
+  py.stderr.on('data', (d) => stderrData += d.toString());
+  
+  py.on('close', (code) => {
+    try {
+      const lastLine = stdoutData.trim().split('\n').pop() || '';
+      const parsed = JSON.parse(lastLine);
+      res.json({ ...parsed, stderr: stderrData.trim().split('\n').slice(-10), code });
+    } catch {
+      res.status(500).json({ success: false, error: 'Failed to parse timing output', stdout: stdoutData.slice(-500), stderr: stderrData.slice(-500), code });
+    }
+  });
+  
+  py.on('error', (err) => {
+    res.status(500).json({ success: false, error: `Spawn failed: ${err.message}` });
+  });
+});
+
 // Samples list
 app.get('/api/samples', (_req: Request, res: Response) => {
   res.json({ samples: SAMPLES });
