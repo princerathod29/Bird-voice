@@ -245,25 +245,36 @@ try:
     a = Analyzer()
     print(f"Analyzer init: {time.time()-t0:.2f}s", file=sys.stderr)
     
-    # Convert audio
+    # Force model load
     t1 = time.time()
+    a.load_model()
+    print(f"Main model load: {time.time()-t1:.2f}s", file=sys.stderr)
+    
+    # Convert audio
+    t2 = time.time()
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
     tmp.close()
     convert_to_standard_wav('${__dirname.replace(/'/g, "\\'")}/public/samples/robin.mp3', tmp.name, 48000)
-    print(f"Convert: {time.time()-t1:.2f}s", file=sys.stderr)
-    
-    t2 = time.time()
-    rec = Recording(a, tmp.name, min_conf=0.1, return_all_detections=True)
-    print(f"Recording create: {time.time()-t2:.2f}s", file=sys.stderr)
+    print(f"Convert: {time.time()-t2:.2f}s", file=sys.stderr)
     
     t3 = time.time()
-    rec.analyze()
-    print(f"Analyze: {time.time()-t3:.2f}s, detections={len(rec.detections)}", file=sys.stderr)
+    rec = Recording(a, tmp.name, min_conf=0.1, return_all_detections=True)
+    print(f"Recording create: {time.time()-t3:.2f}s", file=sys.stderr)
+    
+    t4 = time.time()
+    rec.read_audio_data()
+    print(f"Read audio: {time.time()-t4:.2f}s, chunks={len(rec.chunks)}", file=sys.stderr)
+    
+    t5 = time.time()
+    # Just test one chunk prediction
+    if rec.chunks:
+        pred = a.predict(rec.chunks[0], sensitivity=1.0)
+        print(f"Single predict: {time.time()-t5:.2f}s, shape={pred.shape}", file=sys.stderr)
     
     import os
     os.remove(tmp.name)
     
-    print(json.dumps({"success": True, "total": time.time()-t0, "detections": len(rec.detections)}))
+    print(json.dumps({"success": True, "total": time.time()-t0}))
 except Exception as e:
     import traceback
     print(json.dumps({"success": False, "error": str(e), "trace": traceback.format_exc()}))
