@@ -228,7 +228,7 @@ except Exception as e:
   });
 });
 
-// Debug: test meta model loading (slow part)
+// Debug: test full Recording.analyze()
 app.get('/api/debug/test-meta', async (_req: Request, res: Response) => {
   const pyScript = `
 import json, sys, traceback, time, pathlib
@@ -237,34 +237,40 @@ try:
     from ai_edge_litert import interpreter
     import tflite_runtime.interpreter as tflite
     from birdnetlib.analyzer import Analyzer
-    from birdnetlib.species import SpeciesList
+    from birdnetlib import Recording
+    from backend.audio_analyzer import convert_to_standard_wav
+    import tempfile
     
     t0 = time.time()
     a = Analyzer()
     print(f"Analyzer init: {time.time()-t0:.2f}s", file=sys.stderr)
     
-    # Trigger species list loading
+    # Convert audio
     t1 = time.time()
-    sl = SpeciesList()
-    sl.load_species_list_model()
-    print(f"Meta model load: {time.time()-t1:.2f}s", file=sys.stderr)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+    tmp.close()
+    convert_to_standard_wav('${__dirname.replace(/'/g, "\\'")}/public/samples/robin.mp3', tmp.name, 48000)
+    print(f"Convert: {time.time()-t1:.2f}s", file=sys.stderr)
     
     t2 = time.time()
-    sl.load_labels()
-    print(f"Labels load: {time.time()-t2:.2f}s", file=sys.stderr)
+    rec = Recording(a, tmp.name, min_conf=0.1, return_all_detections=True)
+    print(f"Recording create: {time.time()-t2:.2f}s", file=sys.stderr)
     
     t3 = time.time()
-    species = sl.return_list_for_analyzer(week_48=1, threshold=0.1)
-    print(f"Species list: {time.time()-t3:.2f}s, count={len(species)}", file=sys.stderr)
+    rec.analyze()
+    print(f"Analyze: {time.time()-t3:.2f}s, detections={len(rec.detections)}", file=sys.stderr)
     
-    print(json.dumps({"success": True, "total": time.time()-t0, "species_count": len(species)}))
+    import os
+    os.remove(tmp.name)
+    
+    print(json.dumps({"success": True, "total": time.time()-t0, "detections": len(rec.detections)}))
 except Exception as e:
     import traceback
     print(json.dumps({"success": False, "error": str(e), "trace": traceback.format_exc()}))
     sys.exit(1)
   `;
   
-  const py = spawn(PYTHON_BIN, ['-c', pyScript], { cwd: __dirname, timeout: 120000 });
+  const py = spawn(PYTHON_BIN, ['-c', pyScript], { cwd: __dirname, timeout: 180000 });
   let stdoutData = '';
   let stderrData = '';
   
