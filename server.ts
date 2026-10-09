@@ -120,7 +120,7 @@ function runBirdNetInference(
       TF_ENABLE_ONEDNN_OPTS: '0',
     };
 
-    const pyProcess = spawn(PYTHON_BIN, args, { env, cwd: __dirname });
+    const pyProcess = spawn(PYTHON_BIN, args, { env, cwd: __dirname, timeout: 120000 });
 
     let stdoutData = '';
     let stderrData = '';
@@ -180,6 +180,51 @@ app.get('/api/health', (_req: Request, res: Response) => {
     species_catalog_count: 6521,
     inference_engine: 'TensorFlow Lite + XNNPACK',
     audio_formats_supported: ['wav', 'mp3', 'm4a', 'ogg', 'flac', 'webm']
+  });
+});
+
+// Debug: test Python imports and BirdNET engine init
+app.get('/api/debug/python', async (_req: Request, res: Response) => {
+  const pyScript = `
+import json, sys, traceback
+try:
+    from ai_edge_litert import interpreter
+    print("ai_edge_litert OK", file=sys.stderr)
+    import tflite_runtime.interpreter as tflite
+    print("tflite_runtime shim OK", file=sys.stderr)
+    from birdnetlib.analyzer import Analyzer
+    print("birdnetlib.analyzer import OK", file=sys.stderr)
+    a = Analyzer()
+    print("Analyzer() init OK", file=sys.stderr)
+    print(json.dumps({"status": "ok", "ai_edge_litert": True, "tflite_runtime": True, "analyzer": True}))
+except Exception as e:
+    print(json.dumps({"status": "error", "error": str(e), "trace": traceback.format_exc()}))
+    sys.exit(1)
+  `;
+  
+  const py = spawn(PYTHON_BIN, ['-c', pyScript], { cwd: __dirname, timeout: 60000 });
+  let stdoutData = '';
+  let stderrData = '';
+  
+  py.stdout.on('data', (d) => stdoutData += d.toString());
+  py.stderr.on('data', (d) => stderrData += d.toString());
+  
+  py.on('close', (code) => {
+    try {
+      const lastLine = stdoutData.trim().split('\n').pop() || '';
+      const parsed = JSON.parse(lastLine);
+      if (code === 0 && parsed.status === 'ok') {
+        res.json({ success: true, ...parsed, stderr: stderrData.trim().split('\n').slice(-5) });
+      } else {
+        res.status(500).json({ success: false, ...parsed, stderr: stderrData.trim().split('\n').slice(-10), code });
+      }
+    } catch {
+      res.status(500).json({ success: false, error: 'Failed to parse debug output', stdout: stdoutData.slice(-500), stderr: stderrData.slice(-500), code });
+    }
+  });
+  
+  py.on('error', (err) => {
+    res.status(500).json({ success: false, error: `Spawn failed: ${err.message}` });
   });
 });
 
