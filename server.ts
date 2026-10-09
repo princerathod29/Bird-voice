@@ -228,7 +228,7 @@ except Exception as e:
   });
 });
 
-// Debug: test full Recording.analyze()
+// Debug: test model load only
 app.get('/api/debug/test-meta', async (_req: Request, res: Response) => {
   const pyScript = `
 import json, sys, traceback, time, pathlib
@@ -237,9 +237,6 @@ try:
     from ai_edge_litert import interpreter
     import tflite_runtime.interpreter as tflite
     from birdnetlib.analyzer import Analyzer
-    from birdnetlib import Recording
-    from backend.audio_analyzer import convert_to_standard_wav
-    import tempfile
     
     t0 = time.time()
     a = Analyzer()
@@ -250,29 +247,10 @@ try:
     a.load_model()
     print(f"Main model load: {time.time()-t1:.2f}s", file=sys.stderr)
     
-    # Convert audio
+    # Test interpreter
     t2 = time.time()
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-    tmp.close()
-    convert_to_standard_wav('${__dirname.replace(/'/g, "\\'")}/public/samples/robin.mp3', tmp.name, 48000)
-    print(f"Convert: {time.time()-t2:.2f}s", file=sys.stderr)
-    
-    t3 = time.time()
-    rec = Recording(a, tmp.name, min_conf=0.1, return_all_detections=True)
-    print(f"Recording create: {time.time()-t3:.2f}s", file=sys.stderr)
-    
-    t4 = time.time()
-    rec.read_audio_data()
-    print(f"Read audio: {time.time()-t4:.2f}s, chunks={len(rec.chunks)}", file=sys.stderr)
-    
-    t5 = time.time()
-    # Just test one chunk prediction
-    if rec.chunks:
-        pred = a.predict(rec.chunks[0], sensitivity=1.0)
-        print(f"Single predict: {time.time()-t5:.2f}s, shape={pred.shape}", file=sys.stderr)
-    
-    import os
-    os.remove(tmp.name)
+    print(f"Input details: {a.input_details}", file=sys.stderr)
+    print(f"Output details: {a.output_details}", file=sys.stderr)
     
     print(json.dumps({"success": True, "total": time.time()-t0}))
 except Exception as e:
@@ -281,7 +259,7 @@ except Exception as e:
     sys.exit(1)
   `;
   
-  const py = spawn(PYTHON_BIN, ['-c', pyScript], { cwd: __dirname, timeout: 180000 });
+  const py = spawn(PYTHON_BIN, ['-c', pyScript], { cwd: __dirname, timeout: 120000 });
   let stdoutData = '';
   let stderrData = '';
   
