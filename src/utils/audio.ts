@@ -10,13 +10,21 @@ export class AudioRecorderService {
   private analyser: AnalyserNode | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
 
-  async requestPermission(): Promise<MediaStream> {
+  async requestPermission(options?: {
+    echoCancellation?: boolean;
+    noiseSuppression?: boolean;
+    autoGainControl?: boolean;
+  }): Promise<MediaStream> {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Your browser does not support audio recording via MediaDevices API.');
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
+          echoCancellation: options?.echoCancellation ?? false,
+          noiseSuppression: options?.noiseSuppression ?? false,
+          autoGainControl: options?.autoGainControl ?? false,
           channelCount: 1,
         },
       });
@@ -24,7 +32,7 @@ export class AudioRecorderService {
       return stream;
     } catch (err: any) {
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        throw new Error('Microphone permission denied. Please enable microphone access in your browser settings.');
+        throw new Error('Microphone permission denied. Please allow microphone access in your browser settings to record bird sounds.');
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         throw new Error('No microphone device found on this system.');
       } else {
@@ -35,6 +43,9 @@ export class AudioRecorderService {
 
   setupAnalyser(stream: MediaStream): AnalyserNode {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) {
+      throw new Error('Web Audio API is not supported in this browser.');
+    }
     this.audioContext = new AudioContextClass();
     this.analyser = this.audioContext.createAnalyser();
     this.analyser.fftSize = 256;
@@ -67,6 +78,7 @@ export class AudioRecorderService {
 
     this.mediaRecorder = new MediaRecorder(this.mediaStream, {
       mimeType: selectedMime || undefined,
+      audioBitsPerSecond: 192000,
     });
 
     this.mediaRecorder.ondataavailable = (event) => {
@@ -134,4 +146,21 @@ export function formatDurationSec(seconds: number): string {
   const secs = Math.floor(seconds % 60);
   if (mins === 0) return `${secs.toFixed(1)}s`;
   return `${mins}m ${secs}s`;
+}
+
+export function isMicrophoneSupported(): boolean {
+  return typeof navigator !== 'undefined' &&
+    Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+}
+
+export function getAnalyserAudioLevel(analyser: AnalyserNode | null): number {
+  if (!analyser) return 0;
+  const buffer = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteTimeDomainData(buffer);
+  let sum = 0;
+  for (let i = 0; i < buffer.length; i++) {
+    const norm = (buffer[i] - 128) / 128;
+    sum += norm * norm;
+  }
+  return Math.min(1.0, Math.sqrt(sum / buffer.length) * 3.5);
 }

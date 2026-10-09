@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { GhostFibers } from './components/GhostFibers';
 import { Header } from './components/Header';
@@ -7,15 +7,12 @@ import { ResultsView } from './components/ResultsView';
 import { HistoryModal } from './components/HistoryModal';
 import { SamplesModal } from './components/SamplesModal';
 import { AboutModal } from './components/AboutModal';
-import { AudioRecorderService } from './utils/audio';
+import { useBirdRecorder } from './hooks/useBirdRecorder';
 import { apiUrl } from './utils/api';
 import { AnalysisResponse, HistoryItem, SampleRecording } from './types/birdnet';
 
 export function App() {
   const [view, setView] = useState<'recording' | 'results'>('recording');
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResponse | null>(null);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -53,32 +50,84 @@ export function App() {
       duration: 7.0,
       description: 'Rich liquid warble recorded in temperate woodland habitat.',
       audio_url: '/samples/robin.mp3',
-      sample_file: 'robin.mp3'
+      sample_file: 'robin.mp3',
     },
     {
       id: 'cardinal',
       name: 'Northern Cardinal (Whistle)',
       species: 'Cardinalis cardinalis',
       common_name: 'Northern Cardinal',
-      duration: 7.0,
+      duration: 6.0,
       description: 'Clear resonant whistle notes followed by rapid trill.',
       audio_url: '/samples/cardinal.mp3',
-      sample_file: 'cardinal.mp3'
+      sample_file: 'cardinal.mp3',
     },
     {
       id: 'koel',
       name: 'Asian Koel (Breeding Call)',
       species: 'Eudynamys scolopaceus',
       common_name: 'Asian Koel',
-      duration: 6.5,
+      duration: 6.0,
       description: "Loud repetitive 'ko-el' breeding crescendo recorded in tropical canopy.",
       audio_url: '/samples/koel.mp3',
-      sample_file: 'koel.mp3'
-    }
+      sample_file: 'koel.mp3',
+    },
   ]);
 
-  const recorderRef = useRef<AudioRecorderService | null>(null);
-  const timerRef = useRef<number | null>(null);
+  // Helper: Save observation to history
+  const saveObservationToHistory = useCallback((res: AnalysisResponse, filename: string, durationSec: number) => {
+    if (!res.top_prediction) return;
+    const newItem: HistoryItem = {
+      id: `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      duration: durationSec || res.duration,
+      topSpecies: res.top_prediction.common_name,
+      scientificName: res.top_prediction.scientific_name,
+      confidence: res.top_prediction.confidence,
+      audioFileName: filename,
+      diversityScore: res.soundscape_diversity_score,
+      predictionsCount: res.species_detected_count,
+      response: res,
+    };
+    setHistory((prev) => {
+      const exists = prev.some((h) => h.id === newItem.id);
+      if (exists) return prev;
+      return [newItem, ...prev.slice(0, 49)];
+    });
+  }, []);
+
+  // One-Tap 4-Second Bird Recorder Hook
+  const {
+    state: recordingState,
+    countdownRemaining,
+    elapsedSeconds,
+    audioLevel,
+    analyser,
+    errorMessage: recorderError,
+    startOneTapRecording,
+    cancel: cancelRecording,
+    reset: resetRecording,
+  } = useBirdRecorder({
+    minConfidence,
+    latitude,
+    longitude,
+    onSuccess: (result, blob, duration) => {
+      setAudioBlob(blob);
+      setAudioUrl(undefined);
+      const stamp = new Date().toLocaleTimeString().replace(/:/g, '-');
+      const filename = `Mic_Recording_${stamp}.webm`;
+      setCurrentFileName(filename);
+      setAnalysisResult(result);
+      setView('results');
+
+      if (result.top_prediction) {
+        saveObservationToHistory(result, filename, duration);
+      }
+    },
+    onError: (err) => {
+      setErrorMessage(err);
+    },
+  });
 
   // Load samples from backend
   useEffect(() => {
@@ -108,82 +157,12 @@ export function App() {
     } catch {}
   }, [history]);
 
-  // Handle live recording timer
-  useEffect(() => {
-    if (isRecording) {
-      setRecordingSeconds(0);
-      const start = Date.now();
-      timerRef.current = window.setInterval(() => {
-        setRecordingSeconds((Date.now() - start) / 1000);
-      }, 100);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    }
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    };
-  }, [isRecording]);
-
-  // Start recording
-  const handleStartRecording = async () => {
-    setErrorMessage(null);
-    try {
-      const recorder = new AudioRecorderService();
-      recorderRef.current = recorder;
-      const stream = await recorder.requestPermission();
-      const node = recorder.setupAnalyser(stream);
-      setAnalyser(node);
-      recorder.startRecording();
-      setIsRecording(true);
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to start microphone recording.');
-      setIsRecording(false);
-    }
-  };
-
-  // Stop recording & trigger analysis
-  const handleStopRecording = async () => {
-    if (!recorderRef.current || !isRecording) return;
-    setIsRecording(false);
-
-    try {
-      const { blob, mimeType } = await recorderRef.current.stopRecording();
-      if (recordingSeconds < 1.0) {
-        setErrorMessage('Recording was too short. Please record for at least 3 seconds.');
-        return;
-      }
-      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'm4a' : 'webm';
-      setAudioBlob(blob);
-      setAudioUrl(undefined);
-      const stamp = new Date().toLocaleTimeString().replace(/:/g, '-');
-      setCurrentFileName(`Mic_Recording_${stamp}.${ext}`);
-      await processAudio(blob, `mic_recording.${ext}`);
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to finish recording audio.');
-    }
-  };
-
-  // Cancel recording
-  const handleCancelRecording = () => {
-    if (recorderRef.current) {
-      recorderRef.current.cancelRecording();
-    }
-    setIsRecording(false);
-    setAnalyser(null);
-    setRecordingSeconds(0);
-  };
-
-  // Upload audio file
+  // Upload audio file handler
   const handleUploadFile = async (file: File) => {
     setErrorMessage(null);
     const allowed = /\.(wav|mp3|m4a|ogg|flac|webm|aac)$/i;
     if (!allowed.test(file.name) && !file.type.startsWith('audio/')) {
-      setErrorMessage('Unsupported format. Please select a WAV, MP3, M4A, OGG, or FLAC audio file.');
+      setErrorMessage('Unsupported format. Please select a WAV, MP3, M4A, OGG, FLAC, or WEBM audio file.');
       return;
     }
     if (file.size > 25 * 1024 * 1024) {
@@ -197,7 +176,7 @@ export function App() {
     await processAudio(file, file.name);
   };
 
-  // Select pre-recorded sample
+  // Select pre-recorded sample handler
   const handleSelectSample = async (sample: SampleRecording) => {
     setErrorMessage(null);
     setIsAnalyzing(true);
@@ -212,7 +191,6 @@ export function App() {
 
       await processAudio(blob, sample.sample_file);
     } catch (err: any) {
-      // Fallback: play the locally bundled sample copy (no backend needed)
       try {
         const localUrl = `/samples/${sample.id}.mp3`;
         const localRes = await fetch(localUrl);
@@ -222,11 +200,10 @@ export function App() {
         setAudioUrl(localUrl);
         setErrorMessage(
           backendUp === false
-            ? 'AI backend not connected — playing the bundled sample. Identification needs the backend (run locally or set VITE_API_BASE_URL).'
+            ? 'AI backend not connected — playing the bundled sample.'
             : err.message || 'Failed to process sample audio.'
         );
         setIsAnalyzing(false);
-        return;
       } catch {
         setErrorMessage(err.message || 'Failed to process sample audio.');
         setIsAnalyzing(false);
@@ -234,7 +211,7 @@ export function App() {
     }
   };
 
-  // Core API call to /api/analyze
+  // Core API call to /api/analyze (used for uploaded files & sample selector)
   const processAudio = async (blob: Blob, filename: string) => {
     setIsAnalyzing(true);
     setErrorMessage(null);
@@ -256,7 +233,7 @@ export function App() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         if (backendUp === false) {
-          throw new Error('AI backend not connected. Run the backend locally or set VITE_API_BASE_URL to a hosted backend.');
+          throw new Error('AI backend not connected. Run the backend locally or set VITE_API_BASE_URL.');
         }
         throw new Error(errorData.error || errorData.detail || `Server error (${response.status})`);
       }
@@ -265,21 +242,8 @@ export function App() {
       setAnalysisResult(result);
       setView('results');
 
-      // Save to local history if species detected
       if (result.top_prediction) {
-        const newHistoryItem: HistoryItem = {
-          id: `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-          timestamp: new Date().toISOString(),
-          duration: result.duration,
-          topSpecies: result.top_prediction.common_name,
-          scientificName: result.top_prediction.scientific_name,
-          confidence: result.top_prediction.confidence,
-          audioFileName: filename,
-          diversityScore: result.soundscape_diversity_score,
-          predictionsCount: result.species_detected_count,
-          response: result,
-        };
-        setHistory((prev) => [newHistoryItem, ...prev.slice(0, 49)]);
+        saveObservationToHistory(result, filename, result.duration);
       }
     } catch (err: any) {
       console.error('Analysis failed:', err);
@@ -312,25 +276,23 @@ export function App() {
     setAudioUrl(undefined);
     setCurrentFileName(undefined);
     setErrorMessage(null);
-    if (isRecording) {
-      handleCancelRecording();
-    }
+    resetRecording();
   };
 
   return (
     <div className="min-h-screen bg-[#070b08] text-[#e3ece5] flex flex-col font-sans selection:bg-[#10b981] selection:text-black relative">
-      {/* Decorative GhostFibers bioacoustic background layer */}
+      {/* Bioacoustic dynamic ambient background layer */}
       <GhostFibers opacity={0.65} speed={1.0} interactive={true} />
 
-      {/* Backend status banner */}
+      {/* Backend status banner if unreachable */}
       {backendUp === false && (
         <div className="relative z-10 mx-auto mt-4 flex w-full max-w-3xl items-start gap-3 rounded-xl border border-amber-900/50 bg-amber-950/30 p-4 text-xs text-amber-200">
           <AlertCircle className="h-5 w-5 shrink-0 mt-0.5 text-amber-400" />
           <div className="space-y-1">
-            <p className="font-semibold text-amber-300">Demo mode — AI backend not connected</p>
+            <p className="font-semibold text-amber-300">AI backend not connected</p>
             <p className="leading-relaxed text-amber-200/80">
-              Sample playback works offline. For live identification, host the backend and set{' '}
-              <span className="font-mono text-amber-300">VITE_API_BASE_URL</span> to its URL.
+              For live BirdNET identification, ensure the local backend is running (port 3000) or configure{' '}
+              <span className="font-mono text-amber-300">VITE_API_BASE_URL</span>.
             </p>
           </div>
         </div>
@@ -342,7 +304,7 @@ export function App() {
         onOpenSamples={() => setIsSamplesOpen(true)}
         onOpenAbout={() => setIsAboutOpen(true)}
         historyCount={history.length}
-        isAnalyzing={isAnalyzing}
+        isAnalyzing={isAnalyzing || recordingState === 'processing'}
         onReset={handleReset}
       />
 
@@ -350,12 +312,14 @@ export function App() {
       <main className="flex-1 relative z-10">
         {view === 'recording' ? (
           <RecordingView
-            isRecording={isRecording}
-            recordingSeconds={recordingSeconds}
+            recordingState={recordingState}
+            countdownRemaining={countdownRemaining}
+            elapsedSeconds={elapsedSeconds}
+            audioLevel={audioLevel}
             analyser={analyser}
-            onStartRecording={handleStartRecording}
-            onStopRecording={handleStopRecording}
-            onCancelRecording={handleCancelRecording}
+            onTapBird={startOneTapRecording}
+            onCancelRecording={cancelRecording}
+            onRetryRecording={startOneTapRecording}
             onUploadFile={handleUploadFile}
             onSelectSample={handleSelectSample}
             samples={samples}
@@ -367,8 +331,9 @@ export function App() {
               setLatitude(lat);
               setLongitude(lon);
             }}
-            errorMessage={errorMessage}
-            isAnalyzing={isAnalyzing}
+            errorMessage={recorderError || errorMessage}
+            isAnalyzing={isAnalyzing || recordingState === 'processing'}
+            backendUp={backendUp}
           />
         ) : (
           analysisResult && (
@@ -378,6 +343,24 @@ export function App() {
               audioUrl={audioUrl}
               onReset={handleReset}
               fileName={currentFileName}
+              onSaveObservation={() => {
+                if (analysisResult?.top_prediction) {
+                  saveObservationToHistory(
+                    analysisResult,
+                    currentFileName || 'Observation',
+                    analysisResult.duration
+                  );
+                }
+              }}
+              isSaved={
+                analysisResult.top_prediction
+                  ? history.some(
+                      (h) =>
+                        h.topSpecies === analysisResult.top_prediction?.common_name &&
+                        h.response === analysisResult
+                    )
+                  : false
+              }
             />
           )
         )}
@@ -390,13 +373,15 @@ export function App() {
             <span className="h-2 w-2 rounded-full bg-[#10b981]" />
             <span className="font-semibold text-[#8ca393]">BirdVoice AI</span>
             <span>·</span>
-            <span>Powered by Cornell Lab BirdNET Neural Engine</span>
+            <span>Cornell Lab BirdNET Neural Engine</span>
           </div>
 
           <div className="flex items-center gap-4 text-[11px] text-[#6d8b76]">
             <span>6,521 Avian Species</span>
             <span>·</span>
-            <span>Local Bioacoustic Inference</span>
+            <span>One-Tap 6s Audio ID</span>
+            <span>·</span>
+            <span>High-pass Rumble Filter</span>
             <span>·</span>
             <span>STFT Spectrogram</span>
           </div>
@@ -418,7 +403,7 @@ export function App() {
         onClose={() => setIsSamplesOpen(false)}
         samples={samples}
         onSelectSample={handleSelectSample}
-        isAnalyzing={isAnalyzing}
+        isAnalyzing={isAnalyzing || recordingState === 'processing'}
       />
 
       <AboutModal

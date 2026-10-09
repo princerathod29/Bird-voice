@@ -81,8 +81,8 @@ const SAMPLES = [
     name: 'Northern Cardinal (Whistle)',
     species: 'Cardinalis cardinalis',
     common_name: 'Northern Cardinal',
-    duration: 7.0,
-    description: 'Clear resonant whistle notes followed by rapid trill recorded in Massachusetts, USA.',
+    duration: 6.0,
+    description: 'Clear resonant whistle notes followed by rapid trill recorded in North America.',
     audio_url: '/api/samples/cardinal/audio',
     sample_file: 'cardinal.mp3'
   },
@@ -91,7 +91,7 @@ const SAMPLES = [
     name: 'Asian Koel (Breeding Call)',
     species: 'Eudynamys scolopaceus',
     common_name: 'Asian Koel',
-    duration: 6.5,
+    duration: 6.0,
     description: "Loud repetitive 'ko-el' breeding crescendo recorded in tropical canopy.",
     audio_url: '/api/samples/koel/audio',
     sample_file: 'koel.mp3'
@@ -239,42 +239,51 @@ print(json.dumps(info))
 });
 
 // Audio analysis endpoint
-app.post('/api/analyze', upload.single('audio'), async (req: Request, res: Response) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No audio file provided in request.' });
-  }
+app.post('/api/analyze', (req: Request, res: Response) => {
+  upload.single('audio')(req, res, async (uploadErr: any) => {
+    if (uploadErr) {
+      return res.status(400).json({
+        success: false,
+        error: uploadErr.message || 'Unsupported audio format. Please upload WAV, MP3, M4A, OGG, FLAC, or WEBM.'
+      });
+    }
 
-  const uploadedPath = req.file.path;
-  const minConfidence = req.body.min_confidence ? parseFloat(req.body.min_confidence) : 0.05;
-  const latitude = req.body.latitude ? parseFloat(req.body.latitude) : undefined;
-  const longitude = req.body.longitude ? parseFloat(req.body.longitude) : undefined;
-  const week = req.body.week ? parseInt(req.body.week, 10) : undefined;
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No audio file provided in request.' });
+    }
 
-  try {
-    const analysisResult = await runBirdNetInference(
-      uploadedPath,
-      minConfidence,
-      latitude,
-      longitude,
-      week
-    );
-    res.json(analysisResult);
-  } catch (error: any) {
-    console.error('Inference error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Error occurred during BirdNET neural analysis'
-    });
-  } finally {
-    // Delete temporary upload safely
-    if (fs.existsSync(uploadedPath)) {
-      try {
-        fs.unlinkSync(uploadedPath);
-      } catch (err) {
-        console.error('Failed to unlink uploaded temp file:', err);
+    const uploadedPath = req.file.path;
+    const minConfidence = req.body.min_confidence ? parseFloat(req.body.min_confidence) : 0.05;
+    const latitude = req.body.latitude ? parseFloat(req.body.latitude) : undefined;
+    const longitude = req.body.longitude ? parseFloat(req.body.longitude) : undefined;
+    const week = req.body.week ? parseInt(req.body.week, 10) : undefined;
+
+    try {
+      const analysisResult = await runBirdNetInference(
+        uploadedPath,
+        minConfidence,
+        latitude,
+        longitude,
+        week
+      );
+      res.json(analysisResult);
+    } catch (error: any) {
+      console.error('Inference error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Error occurred during BirdNET neural analysis'
+      });
+    } finally {
+      // Delete temporary upload safely
+      if (fs.existsSync(uploadedPath)) {
+        try {
+          fs.unlinkSync(uploadedPath);
+        } catch (err) {
+          console.error('Failed to unlink uploaded temp file:', err);
+        }
       }
     }
-  }
+  });
 });
 
 // -------------------------------------------------------------

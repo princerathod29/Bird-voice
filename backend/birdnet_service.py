@@ -63,7 +63,8 @@ class BirdNetEngine:
         min_confidence: float = 0.05,
         latitude: Optional[float] = None,
         longitude: Optional[float] = None,
-        week: Optional[int] = None
+        week: Optional[int] = None,
+        audio_quality: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Runs BirdNET neural network inference on an audio file.
@@ -77,22 +78,28 @@ class BirdNetEngine:
         print(f"[service] spectrogram done: {duration}s", flush=True)
 
         # 2. Setup week parameter if location provided
+        has_location = bool(latitude is not None and longitude is not None and not (latitude == 0 and longitude == 0))
+        if not has_location:
+            # Clear cached species list so previous location queries don't leak into worldwide queries
+            self.analyzer.custom_species_list = []
+
         curr_week = -1
         if week is not None and 1 <= week <= 52:
             curr_week = min(48, max(1, int(week * 48 / 52)))
-        elif latitude is not None and longitude is not None:
+        elif has_location:
             raw_w = datetime.datetime.now().isocalendar()[1]
             curr_week = min(48, max(1, int(raw_w * 48 / 52)))
 
         # 3. Analyze audio using birdnetlib Recording
-        print("[service] creating Recording", flush=True)
+        print(f"[service] creating Recording (location: {has_location}, week: {curr_week})", flush=True)
         recording = Recording(
             self.analyzer,
             audio_path,
-            lat=latitude if latitude is not None and not (latitude == 0 and longitude == 0) else None,
-            lon=longitude if longitude is not None and not (latitude == 0 and longitude == 0) else None,
+            lat=latitude if has_location else None,
+            lon=longitude if has_location else None,
             week_48=curr_week,
             min_conf=max(0.01, min(0.99, min_confidence)),
+            overlap=1.5,
             return_all_detections=True
         )
         
@@ -114,6 +121,7 @@ class BirdNetEngine:
             st = round(float(det.get("start_time", 0.0)), 2)
             et = round(float(det.get("end_time", 3.0)), 2)
             time_key = f"{st}_{et}"
+            is_local = det.get("is_predicted_for_location_and_date", True) if has_location else True
 
             if not scientific or not common:
                 continue
@@ -126,12 +134,15 @@ class BirdNetEngine:
                     "max_confidence": conf,
                     "occurrences": 1,
                     "time_intervals": [{"start": st, "end": et, "confidence": conf}],
-                    "confidence_sum": conf
+                    "confidence_sum": conf,
+                    "is_local": is_local
                 }
             else:
                 entry = species_aggregate[scientific]
                 entry["occurrences"] += 1
                 entry["confidence_sum"] += conf
+                if is_local:
+                    entry["is_local"] = True
                 if conf > entry["max_confidence"]:
                     entry["max_confidence"] = conf
                 entry["time_intervals"].append({"start": st, "end": et, "confidence": conf})
@@ -144,29 +155,49 @@ class BirdNetEngine:
                 "common_name": common,
                 "confidence": conf,
                 "start": st,
-                "end": et
+                "end": et,
+                "is_local": is_local
             })
+
+        # Check if any detected species match the local geographic range
+        has_local_matches = any(item.get("is_local", False) for item in species_aggregate.values()) if has_location else False
 
         # Build ordered timeline segments
         for time_key in sorted(chunk_map.keys(), key=lambda k: float(k.split("_")[0])):
             candidates = sorted(chunk_map[time_key], key=lambda x: x["confidence"], reverse=True)
             if candidates:
-                best = candidates[0]
+                if has_local_matches:
+                    local_candidates = [c for c in candidates if c.get("is_local", True)]
+                    best = local_candidates[0] if local_candidates else candidates[0]
+                else:
+                    best = candidates[0]
                 timeline_segments.append({
                     "start": best["start"],
                     "end": best["end"],
                     "top_species": best["common_name"],
                     "scientific_name": best["scientific_name"],
                     "confidence": best["confidence"],
+                    "is_local": best.get("is_local", True),
                     "all_candidates": candidates[:4]
                 })
 
-        # Rank all species
-        ranked_species = sorted(
-            species_aggregate.values(),
-            key=lambda x: (x["max_confidence"], x["occurrences"]),
-            reverse=True
-        )
+        # Rank species: when location context is active and matches exist, prioritize local species over out-of-range false positives
+        if has_local_matches:
+            ranked_species = sorted(
+                species_aggregate.values(),
+                key=lambda x: (
+                    1 if x.get("is_local", False) else 0,
+                    x["max_confidence"],
+                    x["occurrences"]
+                ),
+                reverse=True
+            )
+        else:
+            ranked_species = sorted(
+                species_aggregate.values(),
+                key=lambda x: (x["max_confidence"], x["occurrences"]),
+                reverse=True
+            )
 
         formatted_predictions = []
         for item in ranked_species:
@@ -179,6 +210,7 @@ class BirdNetEngine:
                 "avg_confidence": avg_conf,
                 "occurrences": item["occurrences"],
                 "time_intervals": item["time_intervals"],
+                "is_local": item.get("is_local", True),
                 "info": meta
             })
 
@@ -204,7 +236,8 @@ class BirdNetEngine:
             "predictions": formatted_predictions,
             "timeline": timeline_segments,
             "spectrogram": spectrogram_data,
-            "location_filtered": bool(latitude is not None and longitude is not None)
+            "location_filtered": bool(latitude is not None and longitude is not None),
+            "audio_quality": audio_quality
         }
 
 # Global singleton engine instance

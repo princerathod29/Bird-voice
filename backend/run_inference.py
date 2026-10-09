@@ -53,24 +53,29 @@ def main():
         from backend.birdnet_service import engine
         log("imports done")
 
-        # Convert to 48kHz WAV if not already
-        wav_path = str(audio_file)
-        is_temp = False
-        if audio_file.suffix.lower() != ".wav":
-            import tempfile
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-            tmp.close()
-            convert_to_standard_wav(str(audio_file), tmp.name, 48000)
-            wav_path = tmp.name
-            is_temp = True
-        log(f"wav ready: {wav_path}")
+        # Standardize audio to 48kHz mono WAV with rumble filtering and quality check
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        tmp.close()
+        wav_path = tmp.name
+        is_temp = True
+
+        quality_info = convert_to_standard_wav(
+            str(audio_file),
+            wav_path,
+            sample_rate=48000,
+            apply_filter=True,
+            min_duration=3.0
+        )
+        log(f"wav ready: {wav_path}, quality: {quality_info.get('rms', 0)} RMS")
 
         result = engine.run_inference(
             wav_path,
             min_confidence=args.min_confidence,
             latitude=args.lat,
             longitude=args.lon,
-            week=args.week
+            week=args.week,
+            audio_quality=quality_info
         )
         log("inference done")
 

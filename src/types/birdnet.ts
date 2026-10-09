@@ -60,6 +60,27 @@ export interface SpectrogramData {
   grid: number[][];
 }
 
+export interface AudioQualityInfo {
+  rms: number;
+  peak: number;
+  snr_db?: number;
+  is_quiet: boolean;
+  is_clipping: boolean;
+  is_noisy: boolean;
+  filter_applied: boolean;
+  warnings: string[];
+  duration?: number;
+}
+
+export type OneTapRecordingState =
+  | 'idle'
+  | 'requesting_permission'
+  | 'recording'
+  | 'processing'
+  | 'success'
+  | 'no_detection'
+  | 'error';
+
 export interface AnalysisResponse {
   success: boolean;
   duration: number;
@@ -72,6 +93,7 @@ export interface AnalysisResponse {
   timeline: TimelineSegment[];
   spectrogram: SpectrogramData;
   location_filtered: boolean;
+  audio_quality?: AudioQualityInfo;
 }
 
 export interface HistoryItem {
