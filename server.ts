@@ -228,6 +228,63 @@ except Exception as e:
   });
 });
 
+// Debug: step-by-step timing on Render
+app.get('/api/debug/steps', async (_req: Request, res: Response) => {
+  const pyScript = `
+import json, sys, time
+sys.path.insert(0, '${__dirname.replace(/'/g, "\\'")}')
+def log(m): print(f"[steps] {m}", file=sys.stderr, flush=True)
+try:
+    t0 = time.time()
+    log("step 1: import scipy/soundfile")
+    import soundfile as sf
+    from scipy import signal
+    log(f"step 1 done: {time.time()-t0:.2f}s")
+    
+    t1 = time.time()
+    log("step 2: import librosa")
+    import librosa
+    log(f"step 2 done: {time.time()-t1:.2f}s")
+    
+    t2 = time.time()
+    log("step 3: librosa.load robin.mp3")
+    y, sr = librosa.load('${__dirname.replace(/'/g, "\\'")}/public/samples/robin.mp3', sr=48000, mono=True, res_type='kaiser_fast')
+    log(f"step 3 done: {time.time()-t2:.2f}s, len={len(y)}, sr={sr}")
+    
+    t3 = time.time()
+    log("step 4: scipy spectrogram")
+    f, t, Sxx = signal.spectrogram(y, fs=sr, window='hann', nperseg=1024, noverlap=512, scaling='density')
+    log(f"step 4 done: {time.time()-t3:.2f}s, shape={Sxx.shape}")
+    
+    t4 = time.time()
+    log("step 5: import birdnetlib + Analyzer")
+    from birdnetlib.analyzer import Analyzer
+    a = Analyzer()
+    log(f"step 5 done: {time.time()-t4:.2f}s")
+    
+    print(json.dumps({"success": True, "total": time.time()-t0}))
+except Exception as e:
+    import traceback
+    print(json.dumps({"success": False, "error": str(e), "trace": traceback.format_exc()}))
+    sys.exit(1)
+  `;
+  
+  const py = spawn(PYTHON_BIN, ['-c', pyScript], { cwd: __dirname, timeout: 120000 });
+  let stdoutData = '';
+  let stderrData = '';
+  py.stdout.on('data', (d) => stdoutData += d.toString());
+  py.stderr.on('data', (d) => stderrData += d.toString());
+  py.on('close', (code) => {
+    try {
+      const lastLine = stdoutData.trim().split('\n').pop() || '';
+      const parsed = JSON.parse(lastLine);
+      res.json({ ...parsed, stderr: stderrData.trim().split('\n').slice(-15), code });
+    } catch {
+      res.status(500).json({ success: false, error: 'parse fail', stdout: stdoutData.slice(-300), stderr: stderrData.slice(-500), code });
+    }
+  });
+});
+
 // Samples list
 app.get('/api/samples', (_req: Request, res: Response) => {
   res.json({ samples: SAMPLES });
