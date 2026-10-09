@@ -10,15 +10,21 @@ import os
 import json
 import argparse
 import pathlib
+import logging
+
+# Suppress ALL TensorFlow/XNNPACK/absl logging BEFORE any imports
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["ABSL_LOGGING_VERBOSITY"] = "-1"
+
+# Redirect TF logging to null
+logging.getLogger('absl').setLevel(logging.FATAL)
+logging.getLogger('tensorflow').setLevel(logging.FATAL)
 
 # Ensure workspace root is in sys.path
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
-
-# Suppress TensorFlow verbose logging
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
 def main():
     parser = argparse.ArgumentParser(description="BirdNET Audio Analyzer CLI")
@@ -67,16 +73,16 @@ def main():
             except Exception:
                 pass
 
-        print("__BIRDNET_RESULT_JSON_START__")
-        print(json.dumps(result))
-        print("__BIRDNET_RESULT_JSON_END__")
+        print("__BIRDNET_RESULT_JSON_START__", flush=True)
+        print(json.dumps(result), flush=True)
+        print("__BIRDNET_RESULT_JSON_END__", flush=True)
     except Exception as e:
         import traceback
         err_msg = str(e)
         output = {"success": False, "error": err_msg, "trace": traceback.format_exc()}
-        print("__BIRDNET_RESULT_JSON_START__")
-        print(json.dumps(output))
-        print("__BIRDNET_RESULT_JSON_END__")
+        print("__BIRDNET_RESULT_JSON_START__", flush=True)
+        print(json.dumps(output), flush=True)
+        print("__BIRDNET_RESULT_JSON_END__", flush=True)
         sys.exit(1)
 
 if __name__ == "__main__":
