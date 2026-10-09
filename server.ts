@@ -247,11 +247,13 @@ try:
     a.load_model()
     print(f"Main model load: {time.time()-t1:.2f}s", file=sys.stderr)
     
-    # Test predict with dummy input
+    # Test predict with proper input - skip resize by calling invoke directly
     t2 = time.time()
     dummy = np.zeros((1, 144000), dtype=np.float32)
-    pred = a.predict(dummy, sensitivity=1.0)
-    print(f"Predict: {time.time()-t2:.2f}s, shape={pred.shape}", file=sys.stderr)
+    a.interpreter.set_tensor(a.input_layer_index, dummy)
+    a.interpreter.invoke()
+    pred = a.interpreter.get_tensor(a.output_layer_index)
+    print(f"Direct invoke: {time.time()-t2:.2f}s, shape={pred.shape}", file=sys.stderr)
     
     print(json.dumps({"success": True, "total": time.time()-t0}))
 except Exception as e:
