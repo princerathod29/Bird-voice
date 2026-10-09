@@ -41,6 +41,15 @@ def _predict_fixed(self, sample, sensitivity=1.0):
 
 Analyzer.predict = _predict_fixed
 
+# librosa kaiser_fast resampling hangs on low-CPU servers (Render free tier).
+# Patch to use fast linear resampling — negligible quality loss for BirdNET.
+import librosa as _librosa
+_orig_load = _librosa.load
+def _fast_load(*args, **kwargs):
+    kwargs['res_type'] = 'linear'
+    return _orig_load(*args, **kwargs)
+_librosa.load = _fast_load
+
 class BirdNetEngine:
     def __init__(self):
         print("Initializing BirdNET Analyzer (TFLite + XNNPACK)...")
