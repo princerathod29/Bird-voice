@@ -237,20 +237,21 @@ try:
     from ai_edge_litert import interpreter
     import tflite_runtime.interpreter as tflite
     from birdnetlib.analyzer import Analyzer
+    import numpy as np
     
     t0 = time.time()
     a = Analyzer()
     print(f"Analyzer init: {time.time()-t0:.2f}s", file=sys.stderr)
     
-    # Force model load
     t1 = time.time()
     a.load_model()
     print(f"Main model load: {time.time()-t1:.2f}s", file=sys.stderr)
     
-    # Test interpreter
+    # Test predict with dummy input
     t2 = time.time()
-    print(f"Input details: {a.input_details}", file=sys.stderr)
-    print(f"Output details: {a.output_details}", file=sys.stderr)
+    dummy = np.zeros((1, 144000), dtype=np.float32)
+    pred = a.predict(dummy, sensitivity=1.0)
+    print(f"Predict: {time.time()-t2:.2f}s, shape={pred.shape}", file=sys.stderr)
     
     print(json.dumps({"success": True, "total": time.time()-t0}))
 except Exception as e:
