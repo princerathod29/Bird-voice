@@ -26,6 +26,9 @@ BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+def log(msg):
+    print(f"[run_inference] {msg}", file=sys.stderr, flush=True)
+
 def main():
     parser = argparse.ArgumentParser(description="BirdNET Audio Analyzer CLI")
     parser.add_argument("audio_path", help="Path to input audio file")
@@ -45,8 +48,10 @@ def main():
         sys.exit(1)
 
     try:
+        log("importing audio_analyzer + birdnet_service")
         from backend.audio_analyzer import convert_to_standard_wav
         from backend.birdnet_service import engine
+        log("imports done")
 
         # Convert to 48kHz WAV if not already
         wav_path = str(audio_file)
@@ -58,6 +63,7 @@ def main():
             convert_to_standard_wav(str(audio_file), tmp.name, 48000)
             wav_path = tmp.name
             is_temp = True
+        log(f"wav ready: {wav_path}")
 
         result = engine.run_inference(
             wav_path,
@@ -66,6 +72,7 @@ def main():
             longitude=args.lon,
             week=args.week
         )
+        log("inference done")
 
         if is_temp and os.path.exists(wav_path):
             try:

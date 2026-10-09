@@ -8,6 +8,7 @@ and computes soundscape metrics.
 import time
 import pathlib
 import datetime
+import sys
 from typing import Dict, Any, List, Optional
 
 from birdnetlib import Recording
@@ -19,6 +20,8 @@ from backend.audio_analyzer import compute_spectrogram, convert_to_standard_wav
 # has a fixed input shape, so skip resize and keep the loaded tensors.
 def _predict_fixed(self, sample, sensitivity=1.0):
     import numpy as np
+    import time as _t
+    _t0 = _t.time()
     data = np.array([sample], dtype="float32")
     try:
         self.interpreter.resize_tensor_input(
@@ -33,6 +36,7 @@ def _predict_fixed(self, sample, sensitivity=1.0):
     self.interpreter.invoke()
     prediction = self.interpreter.get_tensor(self.output_layer_index)
     prediction = self.flat_sigmoid(np.array(prediction), sensitivity=-sensitivity)
+    print(f"[service] predict took {_t.time()-_t0:.2f}s", file=sys.stderr, flush=True)
     return prediction
 
 Analyzer.predict = _predict_fixed
@@ -58,8 +62,10 @@ class BirdNetEngine:
         start_time = time.time()
         
         # 1. Compute acoustic metrics and true STFT spectrogram
+        print("[service] run_inference: computing spectrogram", flush=True)
         spectrogram_data = compute_spectrogram(audio_path)
         duration = spectrogram_data.get("duration", 0.0)
+        print(f"[service] spectrogram done: {duration}s", flush=True)
 
         # 2. Setup week parameter if location provided
         curr_week = -1
@@ -70,6 +76,7 @@ class BirdNetEngine:
             curr_week = min(48, max(1, int(raw_w * 48 / 52)))
 
         # 3. Analyze audio using birdnetlib Recording
+        print("[service] creating Recording", flush=True)
         recording = Recording(
             self.analyzer,
             audio_path,
@@ -80,7 +87,9 @@ class BirdNetEngine:
             return_all_detections=True
         )
         
+        print("[service] recording.analyze() start", flush=True)
         recording.analyze()
+        print(f"[service] analyze done: {len(recording.detections)} detections", flush=True)
         detections = recording.detections
 
         # 4. Process and aggregate detections
