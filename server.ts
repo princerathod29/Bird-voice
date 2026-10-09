@@ -228,58 +228,6 @@ except Exception as e:
   });
 });
 
-// Debug: test model load only
-app.get('/api/debug/test-meta', async (_req: Request, res: Response) => {
-  const pyScript = `
-import json, sys, traceback, time, pathlib
-sys.path.insert(0, '${__dirname.replace(/'/g, "\\'")}')
-try:
-    from ai_edge_litert import interpreter
-    import tflite_runtime.interpreter as tflite
-    from birdnetlib.analyzer import Analyzer
-    import numpy as np
-    
-    t0 = time.time()
-    a = Analyzer()
-    print(f"Analyzer init: {time.time()-t0:.2f}s", file=sys.stderr)
-    
-    t1 = time.time()
-    a.load_model()
-    print(f"Main model load: {time.time()-t1:.2f}s", file=sys.stderr)
-    
-    # Test predict with proper input - skip resize by calling invoke directly
-    t2 = time.time()
-    dummy = np.zeros((1, 144000), dtype=np.float32)
-    a.interpreter.set_tensor(a.input_layer_index, dummy)
-    a.interpreter.invoke()
-    pred = a.interpreter.get_tensor(a.output_layer_index)
-    print(f"Direct invoke: {time.time()-t2:.2f}s, shape={pred.shape}", file=sys.stderr)
-    
-    print(json.dumps({"success": True, "total": time.time()-t0}))
-except Exception as e:
-    import traceback
-    print(json.dumps({"success": False, "error": str(e), "trace": traceback.format_exc()}))
-    sys.exit(1)
-  `;
-  
-  const py = spawn(PYTHON_BIN, ['-c', pyScript], { cwd: __dirname, timeout: 120000 });
-  let stdoutData = '';
-  let stderrData = '';
-  
-  py.stdout.on('data', (d) => stdoutData += d.toString());
-  py.stderr.on('data', (d) => stderrData += d.toString());
-  
-  py.on('close', (code) => {
-    try {
-      const lastLine = stdoutData.trim().split('\n').pop() || '';
-      const parsed = JSON.parse(lastLine);
-      res.json({ ...parsed, stderr: stderrData.trim().split('\n').slice(-10), code });
-    } catch {
-      res.status(500).json({ success: false, error: 'Failed to parse', stdout: stdoutData.slice(-500), stderr: stderrData.slice(-500), code });
-    }
-  });
-});
-
 // Samples list
 app.get('/api/samples', (_req: Request, res: Response) => {
   res.json({ samples: SAMPLES });

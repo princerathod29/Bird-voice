@@ -15,6 +15,28 @@ from birdnetlib.analyzer import Analyzer
 from backend.species_info import get_species_info
 from backend.audio_analyzer import compute_spectrogram, convert_to_standard_wav
 
+# ai-edge-litert (cp311) does not support resize_tensor_input(); BirdNET model
+# has a fixed input shape, so skip resize and keep the loaded tensors.
+def _predict_fixed(self, sample, sensitivity=1.0):
+    import numpy as np
+    data = np.array([sample], dtype="float32")
+    try:
+        self.interpreter.resize_tensor_input(
+            self.input_layer_index, [len(data), *data[0].shape]
+        )
+        self.interpreter.allocate_tensors()
+    except Exception:
+        pass
+    self.interpreter.set_tensor(
+        self.input_layer_index, np.array(data, dtype="float32")
+    )
+    self.interpreter.invoke()
+    prediction = self.interpreter.get_tensor(self.output_layer_index)
+    prediction = self.flat_sigmoid(np.array(prediction), sensitivity=-sensitivity)
+    return prediction
+
+Analyzer.predict = _predict_fixed
+
 class BirdNetEngine:
     def __init__(self):
         print("Initializing BirdNET Analyzer (TFLite + XNNPACK)...")
